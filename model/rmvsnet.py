@@ -2,130 +2,70 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+from .gru import GRU
+from .unet_ds2gn import UNetDS2GN
 
-def CGR(kernel_size, input_channel, output_channel, strides):
-    pad = (kernel_size - 1) // 2
-    G = max(1, output_channel // 8)
-    return nn.Sequential(
-        nn.Conv2d(input_channel, output_channel, kernel_size, strides, pad, bias=False),
-        nn.GroupNorm(G, output_channel),
-        nn.ReLU(inplace=True)
-    )
-def DGR(kernel_size, input_channel, output_channel, strides):
-    pad = (kernel_size - 1) // 2
-    G = max(1, output_channel // 8)
-    return nn.Sequential(
-        nn.Conv2d(input_channel, output_channel, kernel_size, strides, pad, bias=False),
-        nn.GroupNorm(G, output_channel),
-        nn.ReLU(inplace=True)
-    )
+from .warping import *
 
 class RMVSNet(nn.Module):
     def __init__(self, train=False):
         super(RMVSNet, self).__init__()
-        # input images pass through
-        ######################
-        # feature extraction
-        # input : N x 3 x W x H channel images
-        # output: N x 32 x W/4 x H/4 channel
-        # features
-        input_channel = 3
-        base_channel = 8
+        # setup network modules
 
-        # aggregation
-        # input x=>
-        self.conv1_0 = CGR(3, input_channel, base_channel * 2, 2)
-        self.conv2_0 = CGR(3, base_channel * 2, base_channel * 4, 2)
-        self.conv3_0 = CGR(3, base_channel * 4, base_channel * 8, 2)
-        self.conv4_0 = CGR(3, base_channel * 8, base_channel * 16, 2)
+        self.feature_extractor = UNetDS2GN()
+        
+        gru_input_size = self.feature_extractor.output_size
+        gru1_output_size = 16
+        gru2_output_size = 4
+        gru3_output_size = 2
+        self.gru1 = GRU(gru_input_size, gru1_output_size, 3)
+        self.gru2 = GRU(gru1_output_size, gru2_output_size, 3)
+        self.gru3 = GRU(gru2_output_size, gru3_output_size, 3)
 
-        self.conv0_1 = CGR(3, input_channel, base_channel, 1)
-        self.conv0_2 = CGR(3, base_channel, base_channel, 1)
-
-        self.conv1_1 = CGR(3, base_channel * 2, base_channel * 2, 1)
-        self.conv1_2 = CGR(3, base_channel * 2, base_channel * 2, 1)
-        self.conv2_1 = CGR(3, base_channel * 4, base_channel * 4, 1)
-        self.conv2_2 = CGR(3, base_channel * 4, base_channel * 4, 1)
-        self.conv3_1 = CGR(3, base_channel * 8, base_channel * 8, 1)
-        self.conv3_2 = CGR(3, base_channel * 8, base_channel * 8, 1)
-        self.conv4_1 = CGR(3, base_channel * 16, base_channel * 16, 1)
-        self.conv4_2 = CGR(3, base_channel * 16, base_channel * 16, 1)
-        self.conv5_0 = DGR(3, base_channel * 16, base_channel * 8, 2)
-
-        # conv5_0 + conv3_2
-        self.conv5_1 = CGR(3, base_channel * 24, base_channel * 8, 1)
-        self.conv5_2 = CGR(3, base_channel * 8, base_channel * 8, 1)
-        self.conv6_0 = DGR(3, base_channel * 8, base_channel * 4, 2)
-
-        # conv6_0 + conv2_2
-        self.conv6_1 = CGR(3, base_channel * 8, base_channel * 4, 1)
-        self.conv6_2 = CGR(3, base_channel * 4, base_channel * 4, 1)
-        self.conv7_0 = DGR(3, base_channel * 4, base_channel * 2, 2)
-
-        # conv7_0 + conv1_2
-        self.conv7_1 = CGR(3, base_channel * 4, base_channel * 2, 1)
-        self.conv7_2 = CGR(3, base_channel * 2, base_channel * 2, 1)
-        self.conv8_0 = DGR(3, base_channel * 2, base_channel, 2)
-
-        # conv8_0 + conv0_2
-        self.conv8_1 = CGR(3, base_channel * 2, base_channel, 1)
-        self.conv8_2 = CGR(3, base_channel * 1, base_channel, 1)
-
-        # 
-        self.conv9_0 = CGR(5, base_channel, base_channel * 2, 2)
-        self.conv9_1 = CGR(3, base_channel * 2, base_channel * 2, 1)
-        self.conv9_2 = CGR(3, base_channel * 2, base_channel * 2, 1)
-        self.conv10_0 = CGR(5, base_channel * 2, base_channel * 4, 2)
-        self.conv10_1 = CGR(3, base_channel * 4, base_channel * 4, 1)
-        self.conv10_2 = nn.Conv2d(3, base_channel * 4, base_channel * 4, 1, 1, bias=False)
-
-    def extract_features(self, x):
-        f0_1 = self.conv0_1(x)
-        f0_2 = self.conv0_2(f0_1)
-
-        f1_0 = self.conv1_0(x)
-        f2_0 = self.conv2_0(f1_0)
-        f3_0 = self.conv3_0(f2_0)
-        f4_0 = self.conv4_0(f3_0)
-
-        f1_1 = self.conv1_1(f1_0)
-        f1_2 = self.conv1_2(f1_1)
-
-        f2_1 = self.conv2_1(f2_0)
-        f2_2 = self.conv2_2(f2_1)
-
-        f3_1 = self.conv3_1(f3_0)
-        f3_2 = self.conv3_2(f3_1)
-
-        f4_1 = self.conv4_1(f4_0)
-        f4_2 = self.conv4_2(f4_1)
-        f5_0 = self.conv5_0(f4_2)
-
-        cat5_0 = torch.cat((f5_0, f3_2), dim=1)
-        f5_1 = self.conv5_1(cat5_0)
-        f5_2 = self.conv5_2(f5_1)
-        f6_0 = self.conv6_0(f5_2)
-
-        cat6_0 = torch.cat((f6_0, f2_2), dim=1)
-        f6_1 = self.conv6_1(cat6_0)
-        f6_2 = self.conv6_2(f6_1)
-        f7_0 = self.conv7_0(f6_2)
+        self.prob_conv = nn.Conv2d(2, 1, 3, 1, 1)
 
 
-        cat7_0 = torch.cat((f7_0, f1_2), dim=1)
-        f7_1 = self.conv7_1(cat7_0)
-        f7_2 = self.conv7_2(f7_1)
-        f8_0 = self.conv8_0(f7_2)
+    def compute_cost_volume(self, warped):
+        '''
+        Warped: N x C x M x H x W
+        '''
+        warped_sq = warped ** 2
+        av_warped = warped.mean(1)
+        av_warped_sq = warped_sq.mean(1)
+        cost = av_warped_sq - (av_warped ** 2)
 
-        cat8_0 = torch.cat((f8_0, f0_2), dim=1)
-        f8_1 = self.conv8_1(cat8_0)
-        f8_2 = self.conv8_2(f8_1)
-        f9_0 = self.conv9_0(f8_2)
-        f9_1 = self.conv9_1(f9_0)
-        f9_2 = self.conv9_2(f9_1)
-        f10_0 = self.conv10_0(f9_2)
-        f10_1 = self.conv10_1(f10_0)
-        f10_2 = self.conv10_2(f10_1)
+        return cost
 
-        return f10_2
+
+    def forward(self, images, intrinsics, extrinsics, depth_start, depth_interval, depth_num):
+        '''
+        Takes all entry and outputs probability volume
+
+        N x D x H x W probability map
+        '''
+        f = self.feature_extractor(images)
+
+        Hs = get_homographies(intrinsics, extrinsics, depth_start, depth_interval, depth_num)
+
+        warped = warp_homographies(f, Hs)
+        cost = self.compute_cost_volume(warped)
+
+
+        N, C, D, H, W = warped.shape
+        cost_1 = None
+        cost_2 = None
+        cost_3 = None
+        depth_costs = []
+        for d in range(depth_num):
+            cost_d = cost[:, :, d]
+
+            cost_1 = self.gru1(-cost_d, cost_1)
+            cost_2 = self.gru1(cost_1, cost_2)
+            cost_3 = self.gru1(cost_2, cost_3)
+
+            reg_cost = self.prob_conv(cost_3)
+            depth_costs.append(reg_cost)
+
+        prob_volume = torch.stack(depth_costs, 1)
+        return torch.softmax(prob_volume, 1)
 
