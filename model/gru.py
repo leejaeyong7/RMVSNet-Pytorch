@@ -11,12 +11,12 @@ class GRU(nn.Module):
         gru_input_channel = input_channel + output_channel
         self.output_channel = output_channel
 
-        self.gate_conv = nn.Conv2d(gru_input_channel, output_channel * 2, kernel_size)
-        self.reset_gate_norm = nn.GroupNorm(1, 16, 1e-5, True)
-        self.update_gate_norm = nn.GroupNorm(1, 16, 1e-5, True)
+        self.gate_conv = nn.Conv2d(gru_input_channel, output_channel * 2, kernel_size, padding=1)
+        self.reset_gate_norm = nn.GroupNorm(1, output_channel, 1e-5, True)
+        self.update_gate_norm = nn.GroupNorm(1, output_channel, 1e-5, True)
 
         # filters used for outputs
-        self.output_conv = nn.Conv2d(gru_input_channel, output_channel, kernel_size)
+        self.output_conv = nn.Conv2d(gru_input_channel, output_channel, kernel_size, padding=1)
         self.output_norm = nn.GroupNorm(1, output_channel, 1e-5, True)
 
         self.activation = nn.Tanh()
@@ -31,7 +31,8 @@ class GRU(nn.Module):
 
         # r = reset gate, u = update gate
         # both are N x O x H x W
-        r, u = torch.split(f, 2, 3)
+        C = f.shape[1]
+        r, u = torch.split(f, C // 2, 1)
 
         rn = self.reset_gate_norm(r)
         un = self.update_gate_norm(u)
@@ -40,9 +41,9 @@ class GRU(nn.Module):
         return rns, uns
 
     def output(self, x, h, r, u):
-        f = torch.cat((x, r * h), dim=3)
+        f = torch.cat((x, r * h), dim=1)
         o = self.output_conv(f)
-        on = self.output_norm()
+        on = self.output_norm(o)
         return on
 
     def forward(self, x, h = None):
