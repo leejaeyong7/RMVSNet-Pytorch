@@ -46,7 +46,7 @@ def get_homographies(features, intrinsics, extrinsics,  min_dist, interval, num_
     src_ts = src_ts.unsqueeze(1)
     src_Rts = src_Rs.transpose(2, 3)
     src_Cs = -src_Rts.matmul(src_ts)
-    src_KIs = torch.inverse(intrinsics)
+    src_KIs = torch.inverse(src_Ks)
 
     # define ref K, R, t
     ref_K = src_Ks[:1]
@@ -57,7 +57,6 @@ def get_homographies(features, intrinsics, extrinsics,  min_dist, interval, num_
     ref_C = src_Cs[:1]
 
     fronto_direction = ref_R[:, :, 2:3, :3] # N x 1 x 1 x 3
-    fronto_direction = torch.eye(3)[2].view(1, 1, 1, 3)
     rel_C = src_Cs - ref_C # N x 1 x 3 x 1
 
     # compute h

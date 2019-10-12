@@ -25,11 +25,11 @@ class RMVSNet(nn.Module):
 
         self.prob_conv = nn.Conv2d(2, 1, 3, 1, 1)
 
-        file_path = path.dirname(path.abspath(__file__))
-        pretrained_weights_file = path.join(file_path,
-                                            'RMVSNet-pretrained.pth')
-        pretrained_weights = torch.load(pretrained_weights_file)
-        self.load_state_dict(pretrained_weights)
+        # file_path = path.dirname(path.abspath(__file__))
+        # pretrained_weights_file = path.join(file_path,
+        #                                     'RMVSNet-pretrained-rev.pth')
+        # pretrained_weights = torch.load(pretrained_weights_file)
+        # self.load_state_dict(pretrained_weights)
 
     def compute_cost_volume(self, warped):
         '''
