@@ -43,7 +43,7 @@ depths, probs = model(images, intrinsics, extrinsics, depth_start, depth_interva
 
 ## About
 This is a custom port of [Original MVSNet using Tensorflow](https://github.com/YoYo000/MVSNet) in Pytorch.
-We use same weight that the authors provided (GRU).
+We use same weight that the authors provided (GRU + DTU).
 ```
 @article{yao2019recurrent,
   title={Recurrent MVSNet for High-resolution Multi-view Stereo Depth Inference},
