@@ -1,4 +1,20 @@
 import torch
+import torch.nn.functional as NF
+
+def compute_depth(prob_volume, depth_start, depth_interval, depth_num):
+    '''
+    prob_volume: 1 x M x H x W
+    '''
+    _, M, H, W = prob_volume.shape
+    # prob_indices = HW shaped vector
+    probs, indices = prob_volume.max(1)
+    depth_range = depth_start + torch.arange(depth_num).float() * depth_interval
+    depth_range = depth_range.to(prob_volume.device)
+    depths = torch.index_select(depth_range, 0, indices.flatten())
+    depth_image = depths.view(H, W)
+    prob_image = probs.view(H, W)
+
+    return depth_image, prob_image
 
 def get_pixel_grids(width, height):
     '''returns W x H grid pixels
@@ -37,6 +53,7 @@ def get_homographies(features, intrinsics, extrinsics,  min_dist, interval, num_
     # R = Nx1x3x3
     # t = Nx1x3x1
     depths = torch.arange(num_planes).float() * interval + min_dist
+    depths = depths.to(features.device)
     src_Ks = intrinsics / 4
     src_Ks[:, 2, 2] = 1
     src_Rs = extrinsics[:, :3, :3]
@@ -61,9 +78,30 @@ def get_homographies(features, intrinsics, extrinsics,  min_dist, interval, num_
 
     # compute h
     # N x 1 x 3 x 1 . N x 1 x 1 x 3 => N x 1 x 3 x 3
-    depth_mat =  depths.view(1, M, 1, 1)
-    trans_mat = torch.eye(3).view(1, 1, 3, 3) - rel_C.matmul(fronto_direction) / depth_mat
+    depth_mat = depths.view(1, M, 1, 1)
+    trans_mat = torch.eye(3, device=features.device).view(1, 1, 3, 3) - rel_C.matmul(fronto_direction) / depth_mat
     return src_Ks.matmul(src_Rs).matmul(trans_mat).matmul(ref_Rt).matmul(ref_KI)
+
+def warp_pixel_grid(homographies, pixel_grid):
+    '''
+    Given homography and a pixel grids
+    Argument:
+        - pixel_grids: 3 x W x H tensor representing
+                        homogeneous pixel coordinates
+                        [(0.5, 0.5, 1) , (0.5, 1.5, 1) ... ]
+        - homographies: N x 3 x 3 tensor representing
+                        homography transformation of N images for M planes
+    Returns:
+        - N x 2 x W x H tensor of warped non-homogeneous coordinates
+    '''
+    # reshape, batch matmul and reshape back
+    # homographies = 3 x 3  @ 3 x (HW)
+    homo_trans_grids = torch.matmul(homographies, pixel_grid.t())
+
+    # make homogeneous => non homogeneous
+    homo_trans_coords = homo_trans_grids[:2]
+    homo_trans_scale = homo_trans_grids[2:]
+    return homo_trans_coords / homo_trans_scale
 
 def warp_pixel_grids(homographies, pixel_grid):
     '''
@@ -78,14 +116,91 @@ def warp_pixel_grids(homographies, pixel_grid):
         - B x N x M x 2 x W x H tensor of warped non-homogeneous coordinates
     '''
     # reshape, batch matmul and reshape back
+    # homographies = 3 x 3  @ 3 x (HW)
     homo_trans_grids = torch.matmul(homographies, pixel_grid.t())
+
     # make homogeneous => non homogeneous
-    homo_trans_coords = homo_trans_grids.narrow(2, 0, 2)
-    homo_trans_scale = homo_trans_grids.narrow(2, 2, 1)
+    homo_trans_coords = homo_trans_grids[:, :2]
+    homo_trans_scale = homo_trans_grids[:, 2:]
+    return homo_trans_coords / homo_trans_scale
+
+def warp_pixel_grids_all(homographies, pixel_grid):
+    '''
+    Given homography and a pixel grids
+    Argument:
+        - pixel_grids: 3 x W x H tensor representing
+                        homogeneous pixel coordinates
+                        [(0.5, 0.5, 1) , (0.5, 1.5, 1) ... ]
+        - homographies: N x M x 3 x 3 tensor representing
+                        homography transformation of N images for M planes
+    Returns:
+        - N x M x 2 x W x H tensor of warped non-homogeneous coordinates
+    '''
+    # reshape, batch matmul and reshape back
+    # homographies = 3 x 3  @ 3 x (HW)
+    homo_trans_grids = torch.matmul(homographies, pixel_grid.t())
+
+    # make homogeneous => non homogeneous
+    homo_trans_coords = homo_trans_grids[:, :, :2]
+    homo_trans_scale = homo_trans_grids[:, :, :2]
     return homo_trans_coords / homo_trans_scale
 
 
+def warp_homography(features, homographies):
+    '''
+    Warp features using homography, and return cost volume
+
+    1. Create pixel grid with N x M x 3 x H/4 x W/4 (homogeneous img coord)
+    2. Warp pixel grid by homography
+        - this will result in N x M x 3 x H/4 x W/4 tensor
+    3. Obtain features from warped pixel coordinates
+        - Use linear interpolation for feature values
+        - this will result in N x M x 32 x H/4 x W/4 tensor
+    '''
+    C, H, W = features.shape
+
+    # obtain pixel grids
+    # pixel_grid = (HW)x 3, in x, y, 1 format
+    pixel_grid = get_pixel_grids(W, H)
+    pixel_grid = pixel_grid.to(features.device)
+    # warp pixel grid with homography
+    # (HW x 3) . (N x M x 3 x 3) => N x M x HW x 3 => N x M x H x W x 3
+    # each 3x1 warped pixel grid represents pixel coord in feature
+
+    warped_pixel_grids = warp_pixel_grids(homographies, pixel_grid)
+
+    # warp / interpolate features
+    warped_features = warp_feature(features, warped_pixel_grids)
+    return warped_features
+
 def warp_homographies(features, homographies):
+    '''
+    Warp features using homography, and return cost volume
+
+    1. Create pixel grid with N x M x 3 x H/4 x W/4 (homogeneous img coord)
+    2. Warp pixel grid by homography
+        - this will result in N x M x 3 x H/4 x W/4 tensor
+    3. Obtain features from warped pixel coordinates
+        - Use linear interpolation for feature values
+        - this will result in N x M x 32 x H/4 x W/4 tensor
+    '''
+    N, C, H, W = features.shape
+    N, _, _ = homographies.shape
+
+    # obtain pixel grids
+    # pixel_grid = (HW)x 3, in x, y, 1 format
+    pixel_grid = get_pixel_grids(W, H)
+    pixel_grid = pixel_grid.to(features.device)
+    # warp pixel grid with homography
+    # (1 x 1 x HW x 3) . (N x M x 3 x 3) => N x M x HW x 3 => N x M x H x W x 3
+    # each 3x1 warped pixel grid represents pixel coord in feature
+    warped_pixel_grids = warp_pixel_grids(homographies, pixel_grid)
+
+    # warp / interpolate features
+    warped_features = warp_features(features, warped_pixel_grids)
+    return warped_features
+
+def warp_homographies_all(features, homographies):
     '''
     Warp features using homography, and return cost volume
 
@@ -102,17 +217,17 @@ def warp_homographies(features, homographies):
     # obtain pixel grids
     # pixel_grid = (HW)x 3, in x, y, 1 format
     pixel_grid = get_pixel_grids(W, H)
+    pixel_grid = pixel_grid.to(features.device)
     # warp pixel grid with homography
     # (1 x 1 x HW x 3) . (N x M x 3 x 3) => N x M x HW x 3 => N x M x H x W x 3
     # each 3x1 warped pixel grid represents pixel coord in feature
     warped_pixel_grids = warp_pixel_grids(homographies, pixel_grid)
 
     # warp / interpolate features
-    warped_features = warp_features(features, warped_pixel_grids)
+    warped_features = warp_features_all(features, warped_pixel_grids)
     return warped_features
 
-
-def warp_features(features, warped_pixel_grids):
+def warp_features_old(features, warped_pixel_grids):
     '''
     Given features, and pixel coordinates, create a warped image
     Argument:
@@ -129,6 +244,8 @@ def warp_features(features, warped_pixel_grids):
     # N x 1 x MWH
     x = warped_pixel_grids.narrow(2, 0, 1).contiguous().view(N, 1, -1)
     y = warped_pixel_grids.narrow(2, 1, 1).contiguous().view(N, 1, -1)
+
+
     xm = ((x >= 0) & (x < W)).float() # N x 1 x MHW mask
     ym = ((y >= 0) & (y < H)).float()
 
@@ -142,13 +259,30 @@ def warp_features(features, warped_pixel_grids):
     x1.clamp_(0, W - 1)
     y1.clamp_(0, H - 1)
 
-    # N x C x MWH
+    # # N x 1 x MWH
+    # coord_a = (y1 * W + x1)
+    # coord_b = (y1 * W + x0)
+    # coord_c = (y0 * W + x1)
+    # coord_d = (y0 * W + x0)
+
+    # # N x C x MWH
+    # pixel_values_a_list = []
+    # pixel_values_b_list = []
+    # pixel_values_c_list = []
+    # pixel_values_d_list = []
+    # for n in range(N):
+    #     pixel_values_a_list.append(torch.index_select(feats[n], 1, coord_a[n, 0]))
+    #     pixel_values_b_list.append(torch.index_select(feats[n], 1, coord_b[n, 0]))
+    #     pixel_values_c_list.append(torch.index_select(feats[n], 1, coord_c[n, 0]))
+    #     pixel_values_d_list.append(torch.index_select(feats[n], 1, coord_d[n, 0]))
+    # pixel_values_a = torch.stack(pixel_values_a_list)
+    # pixel_values_b = torch.stack(pixel_values_b_list)
+    # pixel_values_c = torch.stack(pixel_values_c_list)
+    # pixel_values_d = torch.stack(pixel_values_d_list)
     coord_a = (y1 * W + x1).repeat(1, C, 1)
     coord_b = (y1 * W + x0).repeat(1, C, 1)
     coord_c = (y0 * W + x1).repeat(1, C, 1)
     coord_d = (y0 * W + x0).repeat(1, C, 1)
-
-    # N x C x MWH
     pixel_values_a = feats.gather(2, coord_a)
     pixel_values_b = feats.gather(2, coord_b)
     pixel_values_c = feats.gather(2, coord_c)
@@ -170,8 +304,8 @@ def warp_features(features, warped_pixel_grids):
     area_c = (dx1 * dy0) * xm * ym
     area_d = (dx0 * dy0) * xm * ym
 
-
     # N x C x MWH
+    print(area_a.shape, pixel_values_a.shape)
     va = area_a * pixel_values_a
     vb = area_b * pixel_values_b
     vc = area_c * pixel_values_c
@@ -179,3 +313,81 @@ def warp_features(features, warped_pixel_grids):
 
     # N x M x C x H x W
     return (va + vb + vc + vd).view(N, C, M, H, W)
+
+def warp_feature(features, warped_pixel_grids):
+    '''
+    Given features, and pixel coordinates, create a warped image
+    Argument:
+        - features: N x 32 x W x H
+        - pixel_grids: N x M x 2 x HW , representing x, y coords in
+                        N images for M planes, in new warped plane
+    Returns:
+        - N x M x 32 x W x H warped features
+    '''
+    C, H, W = features.shape
+    _, HW = warped_pixel_grids.shape
+
+    # HW x 2
+    warped_sample_coord = warped_pixel_grids.t().view(1, 1, -1, 2)
+
+    grid_sample_coord = torch.zeros_like(warped_sample_coord)
+    grid_sample_coord[:, :, :, 0] = (warped_sample_coord[:, :, :, 0]) / (W / 2) - 1
+    grid_sample_coord[:, :, :, 1] = (warped_sample_coord[:, :, :, 1]) / (H / 2) - 1
+    grid_sample_coord.clamp_(-2, 2)
+
+    # grid_sample_coord = NxMxHWx2
+    sampled = NF.grid_sample(features.unsqueeze(0), grid_sample_coord)
+    # sampled = N x C x M x HW
+    return sampled.view(C, H, W)
+
+def warp_features(features, warped_pixel_grids):
+    '''
+    Given features, and pixel coordinates, create a warped image
+    Argument:
+        - features: N x 32 x W x H
+        - pixel_grids: N x M x 2 x HW , representing x, y coords in
+                        N images for M planes, in new warped plane
+    Returns:
+        - N x M x 32 x W x H warped features
+    '''
+    N, C, H, W = features.shape
+    N, _, HW = warped_pixel_grids.shape
+
+    # HW x 2
+    warped_sample_coord = warped_pixel_grids.permute(0, 2, 1).unsqueeze(1)
+
+    grid_sample_coord = torch.zeros_like(warped_sample_coord)
+    grid_sample_coord[:, :, :, 0] = (warped_sample_coord[:, :, :, 0]) / (W / 2) - 1
+    grid_sample_coord[:, :, :, 1] = (warped_sample_coord[:, :, :, 1]) / (H / 2) - 1
+    grid_sample_coord.clamp_(-2, 2)
+
+    # grid_sample_coord = NxMxHWx2
+    sampled = NF.grid_sample(features, grid_sample_coord)
+    # sampled = N x C x M x HW
+    return sampled.view(N, C, H, W)
+
+def warp_features_all(features, warped_pixel_grids):
+    '''
+    Given features, and pixel coordinates, create a warped image
+    Argument:
+        - features: N x 32 x W x H
+        - pixel_grids: N x M x 2 x HW , representing x, y coords in
+                        N images for M planes, in new warped plane
+    Returns:
+        - N x M x 32 x W x H warped features
+    '''
+    N, C, H, W = features.shape
+    N, M, _, HW = warped_pixel_grids.shape
+
+    # HW x 2
+    warped_sample_coord = warped_pixel_grids.permute(0, 1, 3, 2)
+
+    grid_sample_coord = torch.zeros_like(warped_sample_coord)
+    grid_sample_coord[:, :, :, 0] = (warped_sample_coord[:, :, :, 0]) / (W / 2) - 1
+    grid_sample_coord[:, :, :, 1] = (warped_sample_coord[:, :, :, 1]) / (H / 2) - 1
+    grid_sample_coord.clamp_(-2, 2)
+
+    # grid_sample_coord = NxMxHWx2
+    sampled = NF.grid_sample(features, grid_sample_coord)
+    # sampled = N x C x M x HW
+    return sampled.view(N, C, H, W)

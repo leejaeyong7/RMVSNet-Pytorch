@@ -7,6 +7,7 @@ from .gru import GRU
 from .unet_ds2gn import UNetDS2GN
 
 from .warping import *
+import pdb
 
 class RMVSNet(nn.Module):
     def __init__(self, train=False):
@@ -25,11 +26,11 @@ class RMVSNet(nn.Module):
 
         self.prob_conv = nn.Conv2d(2, 1, 3, 1, 1)
 
-        # file_path = path.dirname(path.abspath(__file__))
-        # pretrained_weights_file = path.join(file_path,
-        #                                     'RMVSNet-pretrained-rev.pth')
-        # pretrained_weights = torch.load(pretrained_weights_file)
-        # self.load_state_dict(pretrained_weights)
+        file_path = path.dirname(path.abspath(__file__))
+        pretrained_weights_file = path.join(file_path,
+                                            'RMVSNet-pretrained.pth')
+        pretrained_weights = torch.load(pretrained_weights_file)
+        self.load_state_dict(pretrained_weights)
 
     def compute_cost_volume(self, warped):
         '''
@@ -51,21 +52,41 @@ class RMVSNet(nn.Module):
 
         N x D x H x W probability map
         '''
+        N, C, IH, IW = images.shape
         f = self.feature_extractor(images)
 
         Hs = get_homographies(f, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
 
-        warped = warp_homographies(f, Hs)
-        cost = self.compute_cost_volume(warped)
-
-
-        N, C, D, H, W = warped.shape
+        # N, C, D, H, W = warped.shape
         cost_1 = None
         cost_2 = None
         cost_3 = None
         depth_costs = []
+
+        # ref_f = f[0]
+        # ref_f2 = ref_f ** 2
+
         for d in range(depth_num):
-            cost_d = cost[:, :, d]
+            # mean_f = ref_f
+            # mean_f2 = ref_f2
+            # warped = N x C x H x W
+            ref_f = f[:1]
+            warped = warp_homographies(f[1:], Hs[1:, d])
+            all_f = torch.cat((ref_f, warped), 0)
+            
+            # cost_d = 1 x C x H x W
+            cost_d =  self.compute_cost_volume(all_f)
+            # for v in range(1, N):
+            #     H = Hs[v, d]
+            #     src_f = f[v]
+            #     warped_src_f = warp_homographies(src_f, H)
+            #     mean_f += warped_src_f
+            #     mean_f2 += warped_src_f ** 2
+            # mean_f /= N
+            # mean_f2 /= N
+            # cost shape = F
+            # cost_d = (mean_f2 - (mean_f ** 2)).unsqueeze(0)
+
 
             cost_1 = self.gru1(-cost_d, cost_1)
             cost_2 = self.gru2(cost_1, cost_2)
