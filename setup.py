@@ -13,6 +13,9 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/leejaeyong7/rmvsnet-pytorch",
     packages=setuptools.find_packages(),
+    package_data={
+      'weights': ['rmvsnet/RMVSNET-pretrained.pth']
+    },
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
