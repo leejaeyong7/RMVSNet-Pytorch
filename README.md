@@ -1,4 +1,7 @@
 # R-MVSNet Pytorch
+Pytorch implementation of R-MVSNet.
+
+This repo uses pytorch ported weights of original author's tensorflow implementation.
 
 ## Installation
 
