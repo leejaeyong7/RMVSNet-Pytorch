@@ -33,7 +33,7 @@ model = RMVSNet()
 # optiona: put model into gpu
 model.to(torch.device('cuda:0'))
 
-probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
+depths, probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
 ```
 
 ## Reference:
