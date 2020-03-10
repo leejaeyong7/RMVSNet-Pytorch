@@ -6,7 +6,7 @@ from os import path
 from .gru import GRU
 from .unet_ds2gn import UNetDS2GN
 
-from .warping import *
+from .warping import get_homographies, warp_homographies
 import pdb
 
 class RMVSNet(nn.Module):
@@ -76,18 +76,6 @@ class RMVSNet(nn.Module):
             
             # cost_d = 1 x C x H x W
             cost_d =  self.compute_cost_volume(all_f)
-            # for v in range(1, N):
-            #     H = Hs[v, d]
-            #     src_f = f[v]
-            #     warped_src_f = warp_homographies(src_f, H)
-            #     mean_f += warped_src_f
-            #     mean_f2 += warped_src_f ** 2
-            # mean_f /= N
-            # mean_f2 /= N
-            # cost shape = F
-            # cost_d = (mean_f2 - (mean_f ** 2)).unsqueeze(0)
-
-
             cost_1 = self.gru1(-cost_d, cost_1)
             cost_2 = self.gru2(cost_1, cost_2)
             cost_3 = self.gru3(cost_2, cost_3)
