@@ -14,7 +14,7 @@ from rmvsnet import RMVSNet
 '''
 
 Args: 
-  images: Nx3xHxW tensor
+  images: Nx3xHxW tensor. H, W should be multiple of 4
   intrinsics: Nx3x3 tensor
   extrinsics: Nx4x4 tensor
   depth_start: float
@@ -30,7 +30,7 @@ Return:
 
 model = RMVSNet()
 
-# optiona: put model into gpu
+# optional: put model into gpu
 model.to(torch.device('cuda:0'))
 
 depths, probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
