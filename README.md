@@ -24,10 +24,14 @@ Args:
   depth ranges are computed by: depth_start + range(depth_num) * depth_interval
 
 Return:
-  probs: tensor of shape 1xDx(H/4)x(W/4)
+  probs: tensor of shape (H/4)x(W/4)
+  depths: tensor of shape (H/4)x(W/4)
 '''
 
 model = RMVSNet()
+
+# optiona: put model into gpu
+model.to(torch.device('cuda:0'))
 
 probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
 ```

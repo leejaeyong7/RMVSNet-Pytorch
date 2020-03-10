@@ -15,7 +15,7 @@ class RMVSNet(nn.Module):
         # setup network modules
 
         self.feature_extractor = UNetDS2GN()
-        
+
         gru_input_size = self.feature_extractor.output_size
         gru1_output_size = 16
         gru2_output_size = 4
@@ -45,6 +45,22 @@ class RMVSNet(nn.Module):
 
         return cost.unsqueeze(0)
 
+    def compute_depth(self, prob_volume, depth_start, depth_interval, depth_num):
+        '''
+        prob_volume: 1 x D x H x W
+        '''
+        _, M, H, W = prob_volume.shape
+        # prob_indices = HW shaped vector
+        probs, indices = prob_volume.max(1)
+        depth_range = depth_start + torch.arange(depth_num).float() * depth_interval
+        depth_range = depth_range.to(prob_volume.device)
+        depths = torch.index_select(depth_range, 0, indices.flatten())
+        depth_image = depths.view(H, W)
+        prob_image = probs.view(H, W)
+
+        return depth_image, prob_image
+
+
 
     def forward(self, images, intrinsics, extrinsics, depth_start, depth_interval, depth_num):
         '''
@@ -73,7 +89,7 @@ class RMVSNet(nn.Module):
             ref_f = f[:1]
             warped = warp_homographies(f[1:], Hs[1:, d])
             all_f = torch.cat((ref_f, warped), 0)
-            
+
             # cost_d = 1 x C x H x W
             cost_d =  self.compute_cost_volume(all_f)
             cost_1 = self.gru1(-cost_d, cost_1)
@@ -84,5 +100,9 @@ class RMVSNet(nn.Module):
             depth_costs.append(reg_cost)
 
         prob_volume = torch.cat(depth_costs, 1)
-        return torch.softmax(prob_volume, 1)
+        softmax_probs = torch.softmax(prob_volume, 1)
+
+
+        # compute depth map from prob / depth values
+        return compute_depth(softmax_probs, depth_start, depth_interval, depth_num)
 

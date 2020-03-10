@@ -1,21 +1,6 @@
 import torch
 import torch.nn.functional as NF
 
-def compute_depth(prob_volume, depth_start, depth_interval, depth_num):
-    '''
-    prob_volume: 1 x M x H x W
-    '''
-    _, M, H, W = prob_volume.shape
-    # prob_indices = HW shaped vector
-    probs, indices = prob_volume.max(1)
-    depth_range = depth_start + torch.arange(depth_num).float() * depth_interval
-    depth_range = depth_range.to(prob_volume.device)
-    depths = torch.index_select(depth_range, 0, indices.flatten())
-    depth_image = depths.view(H, W)
-    prob_image = probs.view(H, W)
-
-    return depth_image, prob_image
-
 def get_pixel_grids(width, height):
     '''returns W x H grid pixels
 
