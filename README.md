@@ -14,7 +14,7 @@ from rmvsnet import RMVSNet
 '''
 
 Args: 
-  images: Nx3xHxW tensor. H, W should be multiple of 4
+  images: Nx3xHxW tensor. H, W should be multiple of 16
   intrinsics: Nx3x3 tensor
   extrinsics: Nx4x4 tensor
   depth_start: float
