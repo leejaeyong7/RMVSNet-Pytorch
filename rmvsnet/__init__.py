@@ -3,4 +3,4 @@
 from .rmvsnet import RMVSNet
 name = "rmvsnet"
 
-__all__ = [RMVSNet]
+__all__ = ['RMVSNet']

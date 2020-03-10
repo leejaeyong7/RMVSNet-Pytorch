@@ -9,7 +9,7 @@ pip install git+git://github.com/leejaeyong7/rmvsnet-pytorch.git#egg=rmvsnet
 ## Usage
 
 ```python
-import rmvsnet
+from rmvsnet import RMVSNet
 
 '''
 
@@ -27,7 +27,9 @@ Return:
   probs: tensor of shape 1xDx(H/4)x(W/4)
 '''
 
-probs = rmvsnet(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
+model = RMVSNet()
+
+probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
 ```
 
 ## Reference:
