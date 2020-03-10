@@ -6,7 +6,7 @@ This repo uses pytorch ported weights of original author's tensorflow implementa
 ## Installation
 
 ```
-pip install git+git://github.com/leejaeyong7/rmvsnet-pytorch.git#egg=rmvsnet
+pip install git+git://github.com/leejaeyong7/rmvsnet-pytorch.git
 ```
 
 ## Usage
