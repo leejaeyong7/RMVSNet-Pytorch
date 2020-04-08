@@ -104,5 +104,5 @@ class RMVSNet(nn.Module):
 
 
         # compute depth map from prob / depth values
-        return compute_depth(softmax_probs, depth_start, depth_interval, depth_num)
+        return self.compute_depth(softmax_probs, depth_start, depth_interval, depth_num)
 
