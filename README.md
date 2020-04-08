@@ -1,9 +1,12 @@
 # R-MVSNet Pytorch
+Pytorch implementation of R-MVSNet.
+
+This repo uses pytorch ported weights of original author's tensorflow implementation.
 
 ## Installation
 
 ```
-pip install git+git://github.com/leejaeyong7/rmvsnet-pytorch.git#egg=rmvsnet
+pip install git+git://github.com/leejaeyong7/rmvsnet-pytorch.git
 ```
 
 ## Usage
@@ -14,7 +17,7 @@ from rmvsnet import RMVSNet
 '''
 
 Args: 
-  images: Nx3xHxW tensor
+  images: Nx3xHxW tensor. H, W should be multiple of 16
   intrinsics: Nx3x3 tensor
   extrinsics: Nx4x4 tensor
   depth_start: float
@@ -30,7 +33,7 @@ Return:
 
 model = RMVSNet()
 
-# optiona: put model into gpu
+# optional: put model into gpu
 model.to(torch.device('cuda:0'))
 
 depths, probs = model(images, intrinsics, extrinsics, depth_start, depth_interval, depth_num)
@@ -40,7 +43,7 @@ depths, probs = model(images, intrinsics, extrinsics, depth_start, depth_interva
 
 ## About
 This is a custom port of [Original MVSNet using Tensorflow](https://github.com/YoYo000/MVSNet) in Pytorch.
-We use same weight that the authors provided (GRU).
+We use same weight that the authors provided (GRU + DTU).
 ```
 @article{yao2019recurrent,
   title={Recurrent MVSNet for High-resolution Multi-view Stereo Depth Inference},
